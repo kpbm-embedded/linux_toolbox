@@ -10,6 +10,7 @@
  *   expect <path> <text>        file contains text                 exists <path>     file exists
  *   missing <path>              file does not exist                gt <path> <n>     file holds a number > n
  *   klog <text>                 kernel log contains text (waits up to 2 s)
+ *   run <program> [args]       run a program from the initramfs (e.g. /bin/zig_hello); it must exit with 0
  *   fail <cmd ...>              the command must fail (e.g. "fail write /dev/x y")
  *   sleep <ms>                  wait                                # comment
  */
@@ -153,6 +154,29 @@ static int run(char *line)
 	}
 	if (!strcmp(cmd, "klog"))
 		return klog_has(argline) ? 0 : -1;
+	if (!strcmp(cmd, "run")) {	/* fork + execve, up to 8 arguments split at spaces */
+		char *argv[10] = { arg };
+		char *envp[] = { "PATH=/bin", NULL };
+		int argc = 1, status = 0;
+		pid_t pid;
+
+		while (*rest && argc < 9) {
+			argv[argc++] = rest;
+			rest = strchr(rest, ' ');
+			if (!rest)
+				break;
+			*rest++ = 0;
+		}
+		argv[argc] = NULL;
+		pid = fork();
+		if (pid == 0) {
+			execve(arg, argv, envp);
+			exit(127);
+		}
+		if (pid < 0 || waitpid(pid, &status, 0) < 0)
+			return -1;
+		return (status & 0x7f) == 0 && ((status >> 8) & 0xff) == 0 ? 0 : -1;
+	}
 	if (!strcmp(cmd, "sleep")) {
 		usleep(atol(arg) * 1000);
 		return 0;

@@ -1,0 +1,2 @@
+run /bin/@NAME@
+klog @NAME@: running on Linux

@@ -22,6 +22,7 @@ it; `/init` runs `test.cmds` and prints `BOXTEST: PASS`. Output: `$KLINUX_BUILD/
 | `leds_overlay/` | gpio-leds via DT only | LED class, brightness |
 | `hwmon_sensor/` | hwmon chip on a platform device | temp1_* attributes |
 | `initramfs_boot/` | the harness itself | /proc, debugfs |
+| `zig_userspace/` | Zig program (Zig of 32_24_microzig), static musl, run in the VM | `run`, kernel log line |
 | `_qemu/boxinit.c` | the test `/init` (nolibc) | |
 
 Build only, for another configured kernel: `BOARD=<board> klinux examples build [name ...]` (after `kbuild <board> config`

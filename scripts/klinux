@@ -192,6 +192,17 @@ cmd_doctor() {
   for t in pahole qemu-system-riscv64 ccache; do
     if command -v "$t" >/dev/null; then check ok "host tool $t"; else check warn "host tool $t missing (optional)"; fi
   done
+  # Zig (32_24_microzig) for examples/zig_userspace; Rust for Linux needs rustc + rust-src + bindgen (32_17) and, on
+  # riscv, a clang-built kernel (HAVE_RUST needs CC_IS_CLANG): reported only, nothing is installed here.
+  t="$(find_zig)"
+  if [[ -n "$t" ]]; then check ok "zig $("$t" version) (32_24_microzig) for zig_userspace"; else check warn "zig not reachable (32_24_microzig): zig_userspace is skipped"; fi
+  local rid="${BOX_EMBEDDED_RUST:-$ROOT/../32_17_embedded_rust}" rc_=""
+  rc_="$(ls -d "$rid"/install/rustup/toolchains/*/bin/rustc 2>/dev/null | tail -1)"
+  if [[ -n "$rc_" && -d "$(dirname "$(dirname "$rc_")")/lib/rustlib/src" ]] && command -v bindgen >/dev/null; then
+    check ok "Rust for Linux prerequisites found (rustc + rust-src in 32_17, bindgen)"
+  else
+    check warn "Rust for Linux not available: needs rustc + rust-src (32_17_embedded_rust has neither rust-src nor bindgen) and a CONFIG_RUST kernel"
+  fi
   if mkdir -p "$KLINUX_BUILD" 2>/dev/null && [[ -w "$KLINUX_BUILD" ]]; then check ok "build dir $KLINUX_BUILD writable"
   else check bad "build dir $KLINUX_BUILD not writable (set KLINUX_BUILD)"; fi
   if [[ -f "$KLINUX_BUILD/$QEMU_BOARD/arch/riscv/boot/Image" ]]; then check ok "$QEMU_BOARD kernel built (examples can boot)"
@@ -221,6 +232,36 @@ build_module() { # dir board out
   ls "$out"/*.ko >/dev/null
 }
 
+# Zig compiler, reached in 32_24_microzig (not installed here): $KLINUX_ZIG, else $BOX_MICROZIG/install/zig-*/zig,
+# else the sibling ID ../32_24_microzig. Empty when not found.
+find_zig() {
+  local z id
+  [[ -n "${KLINUX_ZIG:-}" && -x "${KLINUX_ZIG}" ]] && { printf '%s\n' "$KLINUX_ZIG"; return; }
+  for id in "${BOX_MICROZIG:-}" "$ROOT/../32_24_microzig"; do
+    [[ -n "$id" ]] || continue
+    z="$(ls -d "$id"/install/zig-*/zig 2>/dev/null | sort -V | tail -1)"
+    [[ -n "$z" && -x "$z" ]] && { printf '%s\n' "$z"; return; }
+  done
+}
+
+zig_target() { # board -> zig target triple for a static Linux userspace program
+  case "$(board_var "$1" ARCH)" in
+    riscv) echo riscv64-linux-musl ;; arm64) echo aarch64-linux-musl ;; arm) echo arm-linux-musleabihf ;; *) echo x86_64-linux-musl ;;
+  esac
+}
+
+build_zig() { # dir board out: every *.zig in dir -> out/bin/<name> (exit 3 when no Zig is reachable)
+  local dir="$1" board="$2" out="$3" f zig
+  compgen -G "$dir/*.zig" >/dev/null || return 0
+  zig="$(find_zig)"
+  [[ -n "$zig" ]] || { echo "klinux: $(basename "$dir") needs Zig from 32_24_microzig (set BOX_MICROZIG or KLINUX_ZIG); skipped" >&2; return 3; }
+  mkdir -p "$out/bin" "$out/zig-cache"
+  for f in "$dir"/*.zig; do
+    "$zig" build-exe "$f" -target "$(zig_target "$board")" -O ReleaseSmall -femit-bin="$out/bin/$(basename "${f%.zig}")" \
+      --cache-dir "$out/zig-cache" --global-cache-dir "$out/zig-cache"
+  done
+}
+
 build_init() { # board -> path of the nolibc /init (cached per board)
   local board="$1" b="$KLINUX_BUILD/$1" src arch cross out="$KLINUX_BUILD/examples/_qemu/$1"
   src="$KLINUX_UPSTREAM/$(board_var "$board" KERNEL_TREE)"
@@ -245,11 +286,13 @@ run_dir() { # dir board [name]
   [[ -f "$b/arch/riscv/boot/Image" ]] || { echo "klinux: $board kernel not built: kbuild $board build" >&2; return 3; }
   mkdir -p "$out"
   build_module "$dir" "$board" "$out/mod" || return $?
+  build_zig "$dir" "$board" "$out" || return $?
   init="$(build_init "$board")"
   list="$out/initramfs.list"
   {
     printf 'dir /dev 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\ndir /proc 0755 0 0\ndir /sys 0755 0 0\n'
-    printf 'dir /m 0755 0 0\ndir /k 0755 0 0\nfile /init %s 0755 0 0\nfile /test.cmds %s 0644 0 0\n' "$init" "$dir/test.cmds"
+    printf 'dir /m 0755 0 0\ndir /k 0755 0 0\ndir /bin 0755 0 0\nfile /init %s 0755 0 0\nfile /test.cmds %s 0644 0 0\n' "$init" "$dir/test.cmds"
+    for f in "$out"/bin/*; do [[ -f "$f" ]] && printf 'file /bin/%s %s 0755 0 0\n' "$(basename "$f")" "$f"; done
     for ko in "$out"/mod/*.ko; do [[ -f "$ko" ]] && printf 'file /m/%s %s 0644 0 0\n' "$(basename "$ko")" "$ko"; done
     if [[ -f "$dir/kmods" ]]; then
       while read -r f; do [[ -n "$f" ]] && printf 'file /k/%s %s 0644 0 0\n' "$(basename "$f")" "$b/$f"; done <"$dir/kmods"
@@ -297,6 +340,8 @@ cmd_examples() {
       for ex in "${exs[@]}"; do
         [[ -d "$ROOT/examples/$ex" ]] || die_usage "no example '$ex'"
         rc=0; build_module "$ROOT/examples/$ex" "$board" "$KLINUX_BUILD/examples/$ex/mod${BOARD:+-$board}" || rc=$?
+        ((rc == 0)) && { build_zig "$ROOT/examples/$ex" "$board" "$KLINUX_BUILD/examples/$ex${BOARD:+/$board}" || rc=$?; }
+        if ((rc == 3)) && compgen -G "$ROOT/examples/$ex/*.zig" >/dev/null; then say "skip $ex (no Zig)"; continue; fi
         ((rc == 3)) && return 3
         if ((rc == 0)); then pass=$((pass + 1)); say "ok   $ex"; else fail=$((fail + 1)); say "FAIL $ex (build)"; fi
       done
@@ -305,6 +350,7 @@ cmd_examples() {
       for ex in "${exs[@]}"; do
         [[ -d "$ROOT/examples/$ex" ]] || die_usage "no example '$ex'"
         rc=0; run_dir "$ROOT/examples/$ex" "$board" || rc=$?
+        if ((rc == 3)) && compgen -G "$ROOT/examples/$ex/*.zig" >/dev/null; then say "skip $ex (no Zig)"; continue; fi
         ((rc == 3)) && return 3
         if ((rc == 0)); then pass=$((pass + 1)); else fail=$((fail + 1)); fi
       done

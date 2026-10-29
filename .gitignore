@@ -4,8 +4,8 @@
 !/upstream/README.md
 /toolchain/*
 !/toolchain/README.md
-/cache/
-/build/
+/cache
+/build
 # module build output if a Makefile is run in place (kernels < 6.13 ignore MO=)
 *.o
 *.ko

@@ -1,0 +1,3 @@
+exists /bin/zig_hello
+run /bin/zig_hello
+klog zig_hello: running on Linux 6.18

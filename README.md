@@ -4,7 +4,8 @@ Builds Linux kernels (and device trees) for embedded boards, out of tree, one `b
 this folder. Use it when you need a kernel and DTBs for K230, RK3506 (Luckfox Lyra), Cubie A7Z, BL808 or a QEMU target, outside Yocto.
 
 Status: **ready** (2026-10-29): 5 board kernels built earlier; the `qemu-riscv64` kernel built and booted in QEMU, where
-15 examples and 13 templates are tested (modules loaded with insmod, DT overlays applied); smoke 31/31, doctor 30 ok.
+16 examples and 14 templates are tested (modules loaded with insmod, DT overlays applied, a Zig program run); smoke
+31/31, doctor 31 ok + 2 warnings (no ccache, no Rust for Linux).
 No kernel has been booted on a real board yet (see Limitations). Self-contained: `scripts/klinux setup` fetches the
 pinned compilers (sha256) and kernel trees (commits) listed in `sources.lock`; build output goes to `$KLINUX_BUILD`.
 
@@ -17,7 +18,8 @@ pinned compilers (sha256) and kernel trees (commits) listed in `sources.lock`; b
 | Vendor kernels | linux-xuantie-kernel 6.6.36 (K230), rockchip-linux develop-6.1 (+Luckfox DTs), Radxa BSP 5.15.147 (A733), openbouffalo 6.4-rc3 (BL808) | `upstream/` |
 | Boards | `k230-vendor`, `k230-mainline`, `rk3506-luckfox-lyra`, `a733-cubie-a7z`, `bl808-sipeed-m1s`, `qemu-riscv64` | `boards/<board>/`, each has a `notes.md`; owned-board inventory: `boards/inventory.md` |
 | Examples | 15: out-of-tree modules (char/misc device, sysfs, debugfs, procfs, kthread, timer + workqueue, platform driver with DT binding, GPIO consumer, I2C client, hwmon) and DT overlays | `examples/`, tested in QEMU |
-| Templates | 13 kinds: module, chardev, misc, platform_dt, i2c_driver, spi_driver, gpio_consumer, sysfs, debugfs, kthread, procfs, dt_overlay, board | `templates/`, `klinux new <kind> <name>` |
+| Examples | + `zig_userspace`: static Zig program for the board, built with the Zig 0.17 of 32_24_microzig (reached, not installed) | `examples/zig_userspace` |
+| Templates | 14 kinds: module, chardev, misc, platform_dt, i2c_driver, spi_driver, gpio_consumer, sysfs, debugfs, kthread, procfs, dt_overlay, board, zig_userspace | `templates/`, `klinux new <kind> <name>` |
 | Test VM | QEMU riscv64 `virt` + initramfs whose `/init` is `examples/_qemu/boxinit.c`, built with the kernel's own nolibc | `klinux examples test`, `klinux run <dir>` |
 
 ## Quick start
@@ -27,7 +29,7 @@ cd $BOX/30_39_tools/32_embedded/32_05_linux
 scripts/klinux setup && scripts/klinux doctor   # fresh clone: compilers + kernel trees at their pins (~5 GB)
 source env.sh                               # bash or zsh; puts kbuild, klinux and the cross compilers on PATH
 kbuild qemu-riscv64 config && kbuild qemu-riscv64 build   # the test kernel (about 4 min with 8 jobs)
-klinux examples test                        # 15 examples, each booted in QEMU (about 1 min)
+klinux examples test                        # 16 examples, each booted in QEMU (about 1 min)
 klinux new chardev mydev --dir ~/work && klinux run ~/work/mydev
 kbuild k230-mainline config --dry-run       # print the commands only
 kbuild k230-mainline config                 # defconfig + fragments merged
@@ -91,6 +93,7 @@ klog, ...) and prints `BOXTEST: PASS`. Results and boot logs: `$KLINUX_BUILD/exa
 | `leds_overlay` | DT only: gpio-leds + heartbeat trigger | LED class device, brightness drives the line |
 | `hwmon_sensor` | hwmon_device_register_with_info, platform device from code | temp1_input/label/max, read-only input |
 | `initramfs_boot` | the test harness itself | /proc/version, debugfs, cpuinfo |
+| `zig_userspace` | Zig userspace program (std.os.linux syscalls), static `riscv64-linux-musl` | `run /bin/zig_hello`, its line in the kernel log |
 
 `dt_overlay/test.sh` also applies the overlay to the QEMU virt DT or a board DTB (`./test.sh k230-mainline canaan/k230-canmv.dtb`).
 
@@ -109,6 +112,13 @@ Templates (`klinux new <kind> <name> [--dir D]`; each has a `test.cmds`, a `Make
 | `kthread` | periodic kernel thread | boot: loop counter, clean stop |
 | `dt_overlay` | overlay with target-path | boot: node in /proc/device-tree |
 | `board` | board.conf + kernel.fragment + notes.md | `kbuild <folder> config --dry-run` |
+| `zig_userspace` | Zig program for the board's ARCH (musl, static) | boot: run it, kernel log line (skipped without Zig) |
+
+Languages: **Zig** yes (userspace programs above; Zig from 32_24_microzig via `$KLINUX_ZIG`, `$BOX_MICROZIG` or the
+sibling ID, else the example is skipped with exit 3). **Rust**: no Rust-for-Linux module yet: 6.18 needs rustc +
+rust-src + bindgen and, on riscv, a clang-built kernel (`HAVE_RUST if CC_IS_CLANG`); 32_17_embedded_rust has rustc
+1.99.1 without rust-src or bindgen (`klinux doctor` reports it). **BEAM** (AtomVM/Erlang): not supported here, it is
+board-rootfs userspace (Yocto or 32_29_atomvm), not a kernel concern.
 
 Board-only parts (flashing, real GPIO/I2C/SPI wiring, U-Boot `fdt apply`) are not tested here; the QEMU test uses
 gpio-sim and i2c-stub instead. The template `Makefile`s build against any configured kernel (`kbuild <board> prepare`),
@@ -153,9 +163,9 @@ No native file exists for this ID, so `box native enable` does not apply. Per sh
 ## Tests
 
 `klinux test --all` (2026-10-29): smoke 31/31 (help, usage errors, dry runs of every board, lock syntax, doctor),
-examples 14/14 test.cmds boots (15 examples: `dt_overlay` is booted with `hello_module`), templates 30/30 (13 kinds
-instantiated; 12 built and booted, board dry-run configured; template Makefile cross-built). `klinux doctor`: 30 ok,
-1 warning (ccache not installed). Board kernels: 5 built on 2026-10-24 (k230-vendor 103 s, k230-mainline 152 s,
+examples 15/15 test.cmds boots (16 examples: `dt_overlay` is booted with `hello_module`), templates 32/32 (14 kinds
+instantiated; 13 built and booted, board dry-run configured; template Makefile cross-built). `klinux doctor`: 31 ok,
+2 warnings (ccache not installed, Rust for Linux prerequisites missing). Board kernels: 5 built on 2026-10-24 (k230-vendor 103 s, k230-mainline 152 s,
 rk3506-luckfox-lyra 104 s, a733-cubie-a7z, bl808-sipeed-m1s 82 s); their build output was not kept, rebuild with kbuild.
 
 ## Troubleshooting

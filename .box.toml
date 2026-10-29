@@ -52,7 +52,21 @@ side_effects = ["setup downloads compilers and kernel trees into toolchain/ and 
 schema = 1
 kind = "build_step"
 path = "scripts/rk3506-luckfox-files"
-summary = "add the Luckfox Lyra DTs + defconfig (sha256-pinned) as a commit on branch box/luckfox-lyra of upstream/rockchip-linux-kernel"
+summary = "add the Luckfox Lyra DTs + defconfig (sha256-pinned) as a commit on box/luckfox-lyra in the RK3506 tree"
 interpreter = "bash"
 flags = ["--dry-run", "--help"]
 dry_run_flag = "--dry-run"
+
+[scripts."test_smoke.sh"]
+schema = 1
+kind = "test"
+path = "tests/test_smoke.sh"
+summary = "smoke test of the scripts: help, usage errors, dry runs, pins file syntax, doctor; changes nothing"
+interpreter = "bash"
+
+[scripts."test_templates.sh"]
+schema = 1
+kind = "test"
+path = "tests/test_templates.sh"
+summary = "instantiate every template with the new command and build/test the results"
+interpreter = "bash"

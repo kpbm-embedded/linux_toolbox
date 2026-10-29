@@ -18,6 +18,12 @@ for d in "$here"/templates/*/; do
     board)
       t "new-$kind" "$kl" new board zz-board --dir "$tmp"
       t "dry-config-$kind" bash -c '"$1/scripts/kbuild" "$2/zz-board" config --dry-run | grep -q "merge_config.sh"' _ "$here" "$tmp" ;;
+    zig_userspace)
+      t "new-$kind" "$kl" new "$kind" "zz_$kind" --dir "$tmp"
+      rc=0; "$kl" run "$tmp/zz_$kind" >"$tmp/run-$kind.log" 2>&1 || rc=$?
+      if ((rc == 0)); then pass=$((pass + 1)); echo "ok   run-$kind"
+      elif ((rc == 3)); then echo "skip run-$kind (no Zig from 32_24_microzig)"
+      else fail=$((fail + 1)); echo "FAIL run-$kind (log $tmp/run-$kind.log)"; fi ;;
     *)
       t "new-$kind" "$kl" new "$kind" "zz_$kind" --dir "$tmp"
       t "run-$kind" "$kl" run "$tmp/zz_$kind" ;;

@@ -1,0 +1,2 @@
+Zig userspace program for the board (static, std.os.linux syscalls), Zig from 32_24_microzig; test boot runs it.
+next: cd @DIR@ && klinux run .      (or: zig build-exe @NAME@.zig -target riscv64-linux-musl -O ReleaseSmall)

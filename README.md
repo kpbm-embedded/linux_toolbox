@@ -117,8 +117,9 @@ Templates (`klinux new <kind> <name> [--dir D]`; each has a `test.cmds`, a `Make
 Languages: **Zig** yes (userspace programs above; Zig from 32_24_microzig via `$KLINUX_ZIG`, `$BOX_MICROZIG` or the
 sibling ID, else the example is skipped with exit 3). **Rust**: no Rust-for-Linux module yet: 6.18 needs rustc +
 rust-src + bindgen and, on riscv, a clang-built kernel (`HAVE_RUST if CC_IS_CLANG`); 32_17_embedded_rust has rustc
-1.99.1 without rust-src or bindgen (`klinux doctor` reports it). **BEAM** (AtomVM/Erlang): not supported here, it is
-board-rootfs userspace (Yocto or 32_29_atomvm), not a kernel concern.
+1.99.1 without rust-src or bindgen (`klinux doctor` reports it). **Bend**: nothing added yet: the toolchain ID
+32_31_bend does not exist yet, and Bend's emitted C needs a hosted POSIX libc (pthread, mmap), so here it could only be a
+64-bit board userspace program (C cross-compiled with `zig cc -target riscv64-linux-musl`), not a kernel module; untested.
 
 Board-only parts (flashing, real GPIO/I2C/SPI wiring, U-Boot `fdt apply`) are not tested here; the QEMU test uses
 gpio-sim and i2c-stub instead. The template `Makefile`s build against any configured kernel (`kbuild <board> prepare`),

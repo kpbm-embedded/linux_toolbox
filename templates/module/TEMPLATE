@@ -1,0 +1,2 @@
+minimal module: load/unload messages and a parameter.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

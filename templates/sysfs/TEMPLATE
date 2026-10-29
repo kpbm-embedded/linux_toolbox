@@ -1,0 +1,2 @@
+kobject /sys/kernel/@NAME@ with a read-write attribute "value".
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

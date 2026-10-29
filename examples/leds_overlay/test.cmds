@@ -1,0 +1,10 @@
+exists /sys/class/leds/box:green/brightness
+expect /sys/class/leds/box:green/trigger [heartbeat]
+write /sys/class/leds/box:green/trigger none
+# gpio-sim lines can sleep, so the LED core sets them from a workqueue: give it a moment
+write /sys/class/leds/box:green/brightness 1
+sleep 100
+expect /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio2/value 1
+write /sys/class/leds/box:green/brightness 0
+sleep 100
+expect /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio2/value 0

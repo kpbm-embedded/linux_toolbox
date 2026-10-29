@@ -1,0 +1,2 @@
+misc device /dev/@NAME@ with read, write and an ioctl.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

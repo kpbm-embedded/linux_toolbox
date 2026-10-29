@@ -1,0 +1,6 @@
+insmod /m/hello.ko greeting=howdy
+klog hello: howdy from an out-of-tree module
+klog bound to /hello, period 500 ms
+expect /sys/module/hello/parameters/greeting howdy
+rmmod hello
+klog hello: unloaded

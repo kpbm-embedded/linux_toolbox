@@ -1,0 +1,8 @@
+insmod /m/box_sysfs.ko
+expect /sys/kernel/box_sysfs/value 0
+write /sys/kernel/box_sysfs/value 21
+expect /sys/kernel/box_sysfs/doubled 42
+fail write /sys/kernel/box_sysfs/value abc
+fail write /sys/kernel/box_sysfs/doubled 1
+rmmod box_sysfs
+missing /sys/kernel/box_sysfs/value

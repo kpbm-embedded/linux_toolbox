@@ -1,0 +1,6 @@
+insmod /m/@NAME@.ko level=3
+klog @NAME@: loaded, level=3
+write /sys/module/@NAME@/parameters/level 4
+expect /sys/module/@NAME@/parameters/level 4
+rmmod @NAME@
+klog @NAME@: unloaded

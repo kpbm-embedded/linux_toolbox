@@ -1,0 +1,2 @@
+platform driver using GPIO lines from the DT (gpiod API): an output "enable" set at probe, sysfs to toggle it.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

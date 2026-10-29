@@ -1,0 +1,6 @@
+insmod /m/box_timer.ko
+klog box_timer: work ran in process context
+sleep 400
+gt /sys/module/box_timer/parameters/works 2
+rmmod box_timer
+klog box_timer: stopped after

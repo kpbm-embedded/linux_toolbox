@@ -1,0 +1,3 @@
+exists /proc/device-tree/@NAME_DASH@/compatible
+expect /proc/device-tree/@NAME_DASH@/compatible vendor,@NAME_DASH@
+expect /proc/device-tree/@NAME_DASH@/vendor,mode auto

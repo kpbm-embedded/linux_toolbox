@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Device-tree overlay example: adds a "box,hello" node (bound by examples/hello_module) at the root.
+ * Uses target-path, so it applies to any base DT without needing __symbols__.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	hello {
+		compatible = "box,hello";
+		box,period-ms = <500>;
+		status = "okay";
+	};
+};

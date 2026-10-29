@@ -1,0 +1,10 @@
+insmod /m/box_gpio.ko
+klog button reads 0
+expect /sys/bus/platform/devices/box-gpio-demo/button 0
+write /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio5/pull pull-up
+expect /sys/bus/platform/devices/box-gpio-demo/button 1
+write /sys/bus/platform/devices/box-gpio-demo/led 1
+expect /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio3/value 1
+write /sys/bus/platform/devices/box-gpio-demo/led 0
+expect /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio3/value 0
+rmmod box_gpio

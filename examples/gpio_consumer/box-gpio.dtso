@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: GPL-2.0
+/* A simulated GPIO bank (gpio-sim, CONFIG_GPIO_SIM) and a box,gpio-demo consumer on lines 3 and 5. */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	gpio-sim {
+		compatible = "gpio-simulator";
+
+		simbank: bank0 {
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <8>;
+			gpio-sim,label = "box-sim";
+		};
+	};
+
+	box-gpio-demo {
+		compatible = "box,gpio-demo";
+		led-gpios = <&simbank 3 0>;
+		button-gpios = <&simbank 5 0>;
+	};
+};

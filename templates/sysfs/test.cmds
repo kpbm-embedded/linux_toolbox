@@ -1,0 +1,6 @@
+insmod /m/@NAME@.ko
+write /sys/kernel/@NAME@/value 5
+expect /sys/kernel/@NAME@/value 5
+fail write /sys/kernel/@NAME@/value five
+rmmod @NAME@
+missing /sys/kernel/@NAME@/value

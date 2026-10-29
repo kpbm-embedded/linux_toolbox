@@ -1,0 +1,4 @@
+insmod /m/@NAME@.ko
+exists /sys/bus/spi/drivers/@NAME@
+rmmod @NAME@
+missing /sys/bus/spi/drivers/@NAME@

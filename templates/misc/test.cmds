@@ -1,0 +1,6 @@
+insmod /m/@NAME@.ko
+exists /dev/@NAME@
+write /dev/@NAME@ 42
+expect /dev/@NAME@ 42
+fail write /dev/@NAME@ x
+rmmod @NAME@

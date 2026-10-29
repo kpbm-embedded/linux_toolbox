@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# kbuild - build an embedded Linux kernel for a board defined in boards/<board>/board.conf.
+#
+#   kbuild [--dry-run] <board> config|menuconfig|build|dtbs|modules|savedefconfig|clean [--yes]
+#
+# Out-of-tree (O=$KLINUX_BUILD/<board>), so one kernel tree serves every board. Self-contained: sources ../env.sh
+# (toolchains in toolchain/*/bin, trees in upstream/) and the board.conf, which sets KERNEL_TREE, KERNEL_REF, ARCH,
+# CROSS_COMPILE, DEFCONFIG and optionally FRAGMENTS, DTBS, MAKE_ARGS. Each real run is logged to <out>/kbuild.log.
+# `clean` is a dry run unless --yes. Exit status: 0 ok, 1 failure, 2 usage error.
+set -euo pipefail
+case "$(uname -s)" in Linux|Darwin) ;; *) case "${1:-help}" in help|-h|--help) ;; *)   # exit 3 elsewhere
+  echo "kbuild: not supported on $(uname -s): the toolchains and SDKs here are Linux builds; use a Linux VM or WSL" >&2; exit 3 ;; esac ;; esac
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+# shellcheck source=SCRIPTDIR/../env.sh
+source "$ROOT/env.sh"
+
+usage() {
+  cat <<EOF
+kbuild - build an embedded Linux kernel for a board defined in boards/<board>/board.conf.
+
+usage: kbuild [-n|--dry-run] <board> <action> [-y|--yes]      (board: a name in boards/ or a folder with a board.conf)
+
+actions:
+  config         DEFCONFIG, then merge the board's FRAGMENTS and olddefconfig
+  menuconfig     interactive kernel configuration
+  build          kernel image (make default target)
+  dtbs           the board's DTBS (default: all dtbs)
+  modules        kernel modules
+  prepare        modules_prepare only: enough to build out-of-tree modules (after config, minutes faster than build)
+  savedefconfig  write a minimal defconfig into the build dir
+  clean          make clean in the build dir (dry run unless --yes)
+
+options (anywhere):
+  -n, --dry-run  print the commands instead of running them
+  -y, --yes      really run 'clean'
+  -h, --help     this text
+
+boards: $(board_names)
+board.conf sets KERNEL_TREE KERNEL_REF ARCH CROSS_COMPILE DEFCONFIG, optional FRAGMENTS DTBS MAKE_ARGS.
+
+environment:
+  KLINUX_BUILD  build output base (default \$BOX_OUT/<this ID path>/build; ID/build standalone or with BOX_INTEGRATION=0)
+  KLINUX_JOBS   parallel make jobs (default 8)
+
+exit status: 0 ok, 1 failure, 2 usage error
+
+examples:
+  kbuild k230-mainline config --dry-run
+  kbuild k230-mainline build
+  kbuild k230-mainline clean --yes
+EOF
+}
+
+# Board names: boards/<name>/board.conf (templates starting with _ are left out).
+board_names() {
+  local conf name
+  for conf in "$ROOT"/boards/*/board.conf; do
+    [[ -f "$conf" ]] || continue
+    name="$(basename "$(dirname "$conf")")"
+    [[ "$name" == _* ]] || printf '%s ' "$name"
+  done
+}
+
+# Usage error: short message + pointer to the help, exit 2.
+die_usage() {
+  echo "kbuild: $*" >&2
+  echo "run 'kbuild --help' for the actions and boards" >&2
+  exit 2
+}
+
+# Run a command, or print it (shell-quoted, prefixed with +) under --dry-run.
+run() {
+  if ((dry)); then
+    printf '+'
+    printf ' %q' "$@"
+    echo
+  else
+    "$@"
+  fi
+}
+
+dry=0 yes=0 positional=()
+[[ "${1:-}" == help ]] && { usage; exit 0; }
+for arg in "$@"; do
+  case "$arg" in
+    -h | --help) usage; exit 0 ;;
+    -n | --dry-run) dry=1 ;;
+    -y | --yes) yes=1 ;;
+    -*) die_usage "unknown option '$arg'" ;;
+    *) positional+=("$arg") ;;
+  esac
+done
+[[ ${#positional[@]} -eq 2 ]] || die_usage "give a board and an action"
+board="${positional[0]}" action="${positional[1]}"
+case "$action" in
+  config | menuconfig | build | dtbs | modules | prepare | savedefconfig | clean) ;;
+  *) die_usage "unknown action '$action'" ;;
+esac
+# clean removes build outputs: without --yes it only shows the command.
+clean_preview=0
+if [[ "$action" == clean ]] && ((!yes && !dry)); then
+  dry=1 clean_preview=1
+fi
+conf="$ROOT/boards/$board/board.conf"
+board_dir="$ROOT/boards/$board"
+if [[ "$board" == */* && -f "$board/board.conf" ]]; then   # a board folder outside boards/
+  board_dir="$(cd "$board" && pwd -P)" conf="$board_dir/board.conf" board="$(basename "$board_dir")"
+fi
+[[ -f "$conf" ]] || { echo "kbuild: no board '$board' (expected $conf)" >&2; exit 1; }
+# shellcheck source=/dev/null  # per-board file, chosen at run time
+source "$conf"
+src="$KLINUX_UPSTREAM/$KERNEL_TREE"
+out="$KLINUX_BUILD/$board"
+# KLINUX_JOBS: parallel make jobs (default 8: the machine is shared; set it to $(nproc) when it is yours)
+make_cmd=(make -C "$src" O="$out" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" -j"${KLINUX_JOBS:-8}")
+command -v ccache >/dev/null && make_cmd+=(CC="ccache ${CROSS_COMPILE}gcc")
+# shellcheck disable=SC2206  # MAKE_ARGS (optional, board.conf): extra make variables, split on spaces
+make_cmd+=(${MAKE_ARGS:-})
+
+if ((!dry)); then
+  [[ -d "$src" ]] || { echo "kbuild: kernel tree missing: $src (clone it into upstream/, shallow)" >&2; exit 1; }
+  command -v "${CROSS_COMPILE}gcc" >/dev/null || { echo "kbuild: ${CROSS_COMPILE}gcc not found in toolchain/*/bin" >&2; exit 1; }
+  mkdir -p "$out"
+fi
+
+case "$action" in
+  config)
+    # shellcheck disable=SC2086  # DEFCONFIG may list several targets (defconfig foo.config …)
+    run "${make_cmd[@]}" $DEFCONFIG
+    fragments=()
+    for fragment in ${FRAGMENTS:-}; do fragments+=("$board_dir/$fragment"); done
+    if ((${#fragments[@]})); then
+      run "$src/scripts/kconfig/merge_config.sh" -m -O "$out" "$out/.config" "${fragments[@]}"
+      run "${make_cmd[@]}" olddefconfig
+    fi
+    ;;
+  menuconfig | savedefconfig | modules | clean) run "${make_cmd[@]}" "$action" ;;
+  prepare) run "${make_cmd[@]}" modules_prepare ;;
+  build) run "${make_cmd[@]}" ;;
+  dtbs)
+    if [[ -n "${DTBS:-}" ]]; then
+      # shellcheck disable=SC2086  # DTBS lists several dtb targets, split on spaces
+      run "${make_cmd[@]}" $DTBS
+    else
+      run "${make_cmd[@]}" dtbs
+    fi
+    ;;
+esac
+((clean_preview)) && echo "kbuild: dry run; rerun with --yes to clean $out"
+((dry)) || echo "$(date -Iseconds) $board $action $KERNEL_TREE@$KERNEL_REF" >>"$out/kbuild.log"

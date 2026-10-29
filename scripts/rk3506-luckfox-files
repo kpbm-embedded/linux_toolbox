@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# rk3506-luckfox-files: add the Luckfox Lyra board DTs and defconfig to upstream/rockchip-linux-kernel, as one commit on
+# branch box/luckfox-lyra (the tree boards/rk3506-luckfox-lyra builds).
+#   rk3506-luckfox-files [--dry-run]
+# The files come from the Luckfox Lyra SDK kernel (unofficial mirror github.com/0xd61/luckfox-linux-6.1-rk3506 @ e0846929),
+# pinned by sha256 and cached in cache/downloads/luckfox-lyra-0xd61/; the dts Makefile lines are
+# boards/rk3506-luckfox-lyra/dts-makefile.patch. Idempotent: does nothing when the branch exists.
+# Exit status: 0 ok, 1 failure (download or checksum), 2 usage error.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+tree="$ROOT/upstream/rockchip-linux-kernel"
+cache="$ROOT/cache/downloads/luckfox-lyra-0xd61"
+base=77168c8d5ab82399f65a80e9f807b50ba37cf483
+expect_tree=e277e70a18bb584873687f350ea0fa92cc0074a8   # git tree of the finished commit (same files = same tree)
+raw=https://raw.githubusercontent.com/0xd61/luckfox-linux-6.1-rk3506/e0846929f1a797988a6965268f391fdb779becfc
+# sha256  path in the kernel tree
+files="b4faa2bc82823a20e0abf6ddc3cefedd22ad2cf85add7c0912cc6de5f2b6cd43 arch/arm/boot/dts/rk3506-luckfox-lyra.dtsi
+184cdeef81f3c4e37aaae8cbce57590fa8b862b5bbc262f1ac319d2edd157660 arch/arm/boot/dts/rk3506g-luckfox-lyra.dts
+4ff0d23b62af0d9410b9fb78cb00672ea838420add8a5d48497eb624c73a4f9d arch/arm/boot/dts/rk3506g-luckfox-lyra-sd.dts
+d5610396f74fd7ad72c5d64d77659c0fd00a3fecdca5def6ca0aefc51b8d6b5b arch/arm/boot/dts/rk3506g-luckfox-lyra-plus.dts
+d07706b46814d093c4679f1358bde400a49bedd8a2ea6a6cb80535e5a7760b66 arch/arm/boot/dts/rk3506g-luckfox-lyra-plus-sd.dts
+e1127c8a612f7df02804ea88ef7e93c6cf74ffb609ba4aa0cf79a261c72a9851 arch/arm/configs/rk3506_luckfox_defconfig"
+case "${1:-}" in
+  -h | --help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  --dry-run | "") ;;
+  *) echo "rk3506-luckfox-files: unknown argument '$1'" >&2; exit 2 ;;
+esac
+dry=0; [[ "${1:-}" == --dry-run ]] && dry=1
+[[ -d "$tree/.git" ]] || { echo "rk3506-luckfox-files: missing $tree (run klinux setup)" >&2; exit 1; }
+if git -C "$tree" rev-parse -q --verify refs/heads/box/luckfox-lyra >/dev/null; then
+  echo "rk3506-luckfox-files: branch box/luckfox-lyra exists (nothing to do)"; exit 0
+fi
+mkdir -p "$cache"
+while read -r sum path; do
+  f="$cache/$(basename "$path")"
+  if ! echo "$sum  $f" | sha256sum -c --quiet - 2>/dev/null; then
+    if ((dry)); then echo "+ curl -fsSL --max-time 120 -o $f $raw/$path"; continue; fi
+    curl -fsSL --retry 3 --max-time 120 -o "$f.part" "$raw/$path"
+    mv "$f.part" "$f"
+    echo "$sum  $f" | sha256sum -c --quiet - || { echo "rk3506-luckfox-files: sha256 mismatch for $f" >&2; exit 1; }
+  fi
+done <<<"$files"
+if ((dry)); then echo "+ git switch -c box/luckfox-lyra $base; copy 6 files; git apply dts-makefile.patch; git commit"; exit 0; fi
+git -C "$tree" switch -q -c box/luckfox-lyra "$base"
+while read -r _ path; do cp "$cache/$(basename "$path")" "$tree/$path"; done <<<"$files"
+git -C "$tree" apply "$ROOT/boards/rk3506-luckfox-lyra/dts-makefile.patch"
+git -C "$tree" add -A
+git -C "$tree" -c user.name="box local" -c user.email="box@localhost" commit -q \
+  -m "ARM: dts: rk3506: add Luckfox Lyra boards and rk3506_luckfox_defconfig" \
+  -m "Board DTs and defconfig from the Luckfox Lyra SDK kernel (mirror: github.com/0xd61/luckfox-linux-6.1-rk3506 @ e0846929), on top of rockchip-linux/kernel develop-6.1 (newer rk3506.dtsi)."
+[[ "$(git -C "$tree" rev-parse HEAD^{tree})" == "$expect_tree" ]] || { echo "rk3506-luckfox-files: tree differs from $expect_tree" >&2; exit 1; }
+echo "rk3506-luckfox-files: box/luckfox-lyra at $(git -C "$tree" rev-parse --short HEAD), tree $(git -C "$tree" rev-parse --short HEAD^{tree})"

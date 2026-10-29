@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Two box,sensor nodes for examples/platform_dt (target-path: applies to any base DT). */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	box-sensor-front {
+		compatible = "box,sensor";
+		label = "front";
+		box,channels = <1 4 9>;
+		box,gain = "high";
+	};
+
+	box-sensor-rear {
+		compatible = "box,sensor";
+		label = "rear";
+		box,channels = <7>;
+	};
+};

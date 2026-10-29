@@ -1,0 +1,2 @@
+kbuild board: board.conf (ARCH, compiler, kernel tree + ref, defconfig, fragments, DTBs), kernel.fragment, notes.md.
+next: edit @DIR@/board.conf, then kbuild @NAME@ config --dry-run && kbuild @NAME@ config && kbuild @NAME@ build

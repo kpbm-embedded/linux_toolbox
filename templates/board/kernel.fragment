@@ -1,0 +1,3 @@
+# Kernel options for @NAME@, merged over DEFCONFIG (CONFIG_FOO=y lines, "# CONFIG_FOO is not set" to drop one).
+CONFIG_OF_OVERLAY=y
+CONFIG_MODULES=y

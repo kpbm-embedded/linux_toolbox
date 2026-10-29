@@ -1,0 +1,6 @@
+insmod /m/@NAME@.ko
+klog enable line is high
+expect /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio1/value 1
+write /sys/bus/platform/devices/@NAME_DASH@/enable 0
+expect /sys/devices/platform/gpio-sim/gpiochip0/sim_gpio1/value 0
+rmmod @NAME@

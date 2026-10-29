@@ -1,0 +1,2 @@
+SPI device driver skeleton (spi_driver, DT match, one register read helper); the test only loads and unloads it (no SPI controller in the test VM).
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

@@ -1,0 +1,6 @@
+insmod /m/@NAME@.ko
+exists /dev/@NAME@0
+write /dev/@NAME@0 template ok
+expect /dev/@NAME@0 template ok
+rmmod @NAME@
+missing /dev/@NAME@0

@@ -1,0 +1,2 @@
+device-tree overlay (no module): a node with properties, checked in /proc/device-tree by the test boot.
+next: cd @DIR@ && klinux run .      (on a board: dtc -@ -I dts -O dtb -o @NAME@.dtbo @NAME@.dtso, then fdt apply in U-Boot)

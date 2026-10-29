@@ -1,0 +1,6 @@
+insmod /m/box_kthread.ko period_ms=10
+klog box_kthread: running as pid
+sleep 300
+gt /sys/module/box_kthread/parameters/ticks 5
+rmmod box_kthread
+klog box_kthread: stopped after

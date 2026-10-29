@@ -1,0 +1,5 @@
+insmod /m/@NAME@.ko period_ms=10
+sleep 200
+gt /sys/module/@NAME@/parameters/loops 3
+rmmod @NAME@
+klog @NAME@: stopped after

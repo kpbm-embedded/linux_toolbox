@@ -1,0 +1,8 @@
+insmod /m/box_chardev.ko
+klog box_chardev: /dev/boxchar0 is
+exists /dev/boxchar0
+expect /sys/class/boxchar/boxchar0/dev :0
+write /dev/boxchar0 hello chardev
+expect /dev/boxchar0 hello chardev
+rmmod box_chardev
+missing /dev/boxchar0

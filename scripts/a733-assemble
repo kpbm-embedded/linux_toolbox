@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# a733-assemble: turn upstream/linux-a733/{src,bsp,device-a733} into a buildable kernel tree (src/).
+#   a733-assemble [--dry-run]
+# Reproduces radxa-pkg/linux-a733 (packaging/): its debian/patches series and the pre_build glue in
+# .github/local/Makefile.local (bsp symlink, bsp.config, board DT links, dtsi/dt-bindings copies, ramfs, autogen header).
+# Idempotent: records the done state in src/.box-a733-assembled.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+top="$ROOT/upstream/linux-a733"
+dry=0; [[ "${1:-}" == --dry-run ]] && dry=1
+run() { if (( dry )); then printf '+'; printf ' %q' "$@"; echo; else "$@"; fi; }
+for d in packaging src bsp device-a733; do [[ -d "$top/$d" ]] || { echo "a733-assemble: missing $top/$d" >&2; exit 1; }; done
+marker="$top/src/.box-a733-assembled"
+[[ -f "$marker" ]] && { echo "a733-assemble: already done ($(cat "$marker"))"; exit 0; }
+cd "$top"
+# 1. Debian patch series (paths are src/… and bsp/…, relative to the packaging root)
+while read -r p; do
+    [[ -z "$p" || "$p" == \#* ]] && continue
+    run patch -p1 --forward --no-backup-if-mismatch -i "packaging/debian/patches/$p"
+done < packaging/debian/patches/series
+# 2. pre_build glue from Makefile.local
+run ln -sfn ../bsp src/bsp
+run ln -sf ../../../../device-a733/configs/default/linux-5.15/bsp_defconfig src/arch/arm64/configs/bsp.config
+for b in cubie_a7a cubie_a7s cubie_a7z; do
+    run ln -sf "../../../../../../device-a733/configs/$b/linux-5.15/board.dts" "src/arch/arm64/boot/dts/allwinner/sun60i-a733-${b/_/-}.dts"
+done
+if (( dry )); then echo "+ cp bsp/configs/linux-5.15/*.dtsi src/arch/arm64/boot/dts/allwinner/"; else cp -a bsp/configs/linux-5.15/*.dtsi src/arch/arm64/boot/dts/allwinner/; fi
+run cp -aR bsp/include/dt-bindings/. src/include/dt-bindings
+if (( dry )); then echo "+ (cd bsp/ramfs/ramfs_aarch64 && find . | fakeroot cpio -o -Hnewc | gzip) > bsp/ramfs/ramfs_aarch64.cpio.gz"
+else (cd bsp/ramfs/ramfs_aarch64 && find . | fakeroot cpio --quiet -o -Hnewc | gzip -n) > bsp/ramfs/ramfs_aarch64.cpio.gz; fi
+ver="$(git -C packaging log -n 1 --abbrev=10 --pretty=format:%h), $(date '+%Y-%m-%d %H:%M:%S'), RadxaOS SDK"
+if (( dry )); then echo "+ echo '#define AW_BSP_VERSION \"$ver\"' > bsp/include/sunxi-autogen.h"
+else echo "#define AW_BSP_VERSION \"$ver\"" > bsp/include/sunxi-autogen.h
+    echo "$(date -Iseconds) packaging=$(git -C packaging rev-parse --short HEAD) src=$(git -C src rev-parse --short HEAD) bsp=$(git -C bsp rev-parse --short HEAD) device=$(git -C device-a733 rev-parse --short HEAD)" > "$marker"; fi

@@ -1,0 +1,8 @@
+insmod /m/box_misc.ko
+klog box_misc: /dev/boxmisc minor
+expect /dev/boxmisc reads=1
+expect /dev/boxmisc reads=2
+write /dev/boxmisc reset
+expect /dev/boxmisc reads=1
+fail write /dev/boxmisc bogus
+rmmod box_misc

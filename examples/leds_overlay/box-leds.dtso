@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: GPL-2.0
+/* gpio-leds on line 2 of a simulated GPIO bank: /sys/class/leds/box:green, heartbeat trigger. */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	gpio-sim {
+		compatible = "gpio-simulator";
+
+		simbank: bank0 {
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <4>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-green {
+			label = "box:green";
+			gpios = <&simbank 2 0>;
+			linux,default-trigger = "heartbeat";
+		};
+	};
+};

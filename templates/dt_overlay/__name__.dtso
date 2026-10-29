@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * @NAME@: device-tree overlay. target-path &{/} works on any base DT; to modify a labelled node of a board DT
+ * use &label { ... }; (needs a base DTB built with -@, i.e. DTC_FLAGS=-@ / CONFIG_OF_OVERLAY symbols).
+ */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	@NAME_DASH@ {
+		compatible = "vendor,@NAME_DASH@";
+		vendor,mode = "auto";
+		vendor,values = <1 2 3>;
+		status = "okay";
+	};
+};

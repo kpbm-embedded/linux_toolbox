@@ -1,0 +1,6 @@
+expect /proc/version Linux version 6.18
+expect /proc/cmdline rdinit=/init
+expect /proc/filesystems debugfs
+exists /dev/console
+exists /sys/kernel/debug
+expect /proc/cpuinfo rv64

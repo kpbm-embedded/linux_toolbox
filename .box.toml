@@ -1,0 +1,58 @@
+id = "32_05"
+name = "linux"
+kind = "tool"
+status = "active"
+old_paths = []
+tags = []
+
+[backup]
+tier = "critical"
+
+[tool]
+name = "embedded_linux"
+launcher = "kbuild"
+env_var = "BOX_EMBEDDED_LINUX"
+env_path = "."
+
+[scripts.kbuild]
+schema = 1
+kind = "launcher"
+path = "scripts/kbuild"
+summary = "build an embedded Linux kernel for a board defined in boards/<board>/board.conf."
+interpreter = "bash"
+commands = ["config", "menuconfig", "build", "dtbs", "modules", "prepare", "savedefconfig", "clean"]
+flags = ["--dry-run", "--yes", "--help"]
+reads = { local = ["DTBS", "FRAGMENTS", "MAKE_ARGS", "KLINUX_BUILD", "KLINUX_JOBS"] }
+dry_run_flag = "--dry-run"
+apply_flag = { clean = "--yes" }
+scope = "global"
+
+[scripts.a733-assemble]
+schema = 1
+kind = "build_step"
+path = "scripts/a733-assemble"
+summary = "turn upstream/linux-a733/{src,bsp,device-a733} into a buildable kernel tree (Radxa patches + glue)"
+flags = ["--dry-run"]
+dry_run_flag = "--dry-run"
+side_effects = ["patches upstream/linux-a733/src and bsp in place (once; marker src/.box-a733-assembled)"]
+
+[scripts.klinux]
+schema = 1
+kind = "launcher"
+path = "scripts/klinux"
+summary = "setup (pinned sources), update --check, doctor, examples (QEMU boot tests), run, templates/new, test."
+interpreter = "bash"
+commands = ["setup", "update", "doctor", "examples", "run", "templates", "new", "test"]
+flags = ["--dry-run", "--help"]
+dry_run_flag = "--dry-run"
+reads = { local = ["KLINUX_BUILD", "KLINUX_JOBS", "KLINUX_QEMU_BOARD", "QEMU_TIMEOUT", "BOARD"] }
+side_effects = ["setup downloads compilers and kernel trees into toolchain/ and upstream/", "examples/run write to $KLINUX_BUILD/examples/"]
+
+[scripts.rk3506-luckfox-files]
+schema = 1
+kind = "build_step"
+path = "scripts/rk3506-luckfox-files"
+summary = "add the Luckfox Lyra DTs + defconfig (sha256-pinned) as a commit on branch box/luckfox-lyra of upstream/rockchip-linux-kernel"
+interpreter = "bash"
+flags = ["--dry-run", "--help"]
+dry_run_flag = "--dry-run"

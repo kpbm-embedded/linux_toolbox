@@ -1,0 +1,5 @@
+# Kernel options for a733-cubie-a7z, merged over DEFCONFIG (CONFIG_FOO=y lines).
+# radxa.config enables the upstream IMX214/IMX219 drivers; the BSP's own sensor drivers (bsp/drivers/vin, used by the
+# A733 camera stack) have the same module names, and modules_check rejects the duplicates.
+# CONFIG_VIDEO_IMX214 is not set
+# CONFIG_VIDEO_IMX219 is not set

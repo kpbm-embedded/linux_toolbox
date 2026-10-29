@@ -1,0 +1,7 @@
+insmod /m/box_debugfs.ko
+expect /sys/kernel/debug/box_debugfs/counter 0
+write /sys/kernel/debug/box_debugfs/counter 7
+expect /sys/kernel/debug/box_debugfs/stats counter=7
+expect /sys/kernel/debug/box_debugfs/stats opens=2
+rmmod box_debugfs
+missing /sys/kernel/debug/box_debugfs/stats

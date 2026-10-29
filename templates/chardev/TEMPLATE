@@ -1,0 +1,2 @@
+character device /dev/@NAME@0 (cdev + class) with a buffer: write, then read it back.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

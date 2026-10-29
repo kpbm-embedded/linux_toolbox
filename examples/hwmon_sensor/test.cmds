@@ -1,0 +1,9 @@
+insmod /m/box_hwmon.ko base_mc=36500
+expect /sys/class/hwmon/hwmon0/name box_hwmon
+expect /sys/class/hwmon/hwmon0/temp1_input 36500
+expect /sys/class/hwmon/hwmon0/temp1_label box board
+write /sys/class/hwmon/hwmon0/temp1_max 50000
+expect /sys/class/hwmon/hwmon0/temp1_max 50000
+fail write /sys/class/hwmon/hwmon0/temp1_input 1
+rmmod box_hwmon
+missing /sys/class/hwmon/hwmon0/name

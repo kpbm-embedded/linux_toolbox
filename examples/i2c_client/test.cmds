@@ -1,0 +1,10 @@
+insmod /k/i2c-stub.ko chip_addr=0x48
+insmod /m/box_i2c.ko
+write /sys/bus/i2c/devices/i2c-0/new_device box_i2c 0x48
+klog probed at 0x48, ctrl=0x5a
+expect /sys/bus/i2c/devices/0-0048/ctrl 90
+write /sys/bus/i2c/devices/0-0048/ctrl 0x11
+expect /sys/bus/i2c/devices/0-0048/ctrl 17
+write /sys/bus/i2c/devices/i2c-0/delete_device 0x48
+klog removed
+rmmod box_i2c

@@ -1,0 +1,5 @@
+insmod /m/@NAME@.ko
+write /sys/kernel/debug/@NAME@/counter 3
+expect /sys/kernel/debug/@NAME@/state counter=3
+rmmod @NAME@
+missing /sys/kernel/debug/@NAME@/state

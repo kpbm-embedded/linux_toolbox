@@ -1,0 +1,19 @@
+# linux: only sources go into git (board confs, scripts, examples, templates, tests, docs). Kernel trees and compilers
+# are fetched again by `klinux setup` (pins: sources.lock); build output goes to KLINUX_BUILD.
+/upstream/*
+!/upstream/README.md
+/toolchain/*
+!/toolchain/README.md
+/cache/
+/build/
+# module build output if a Makefile is run in place (kernels < 6.13 ignore MO=)
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+.*.cmd
+Module.symvers
+modules.order
+*.dtbo
+*.log

@@ -1,0 +1,2 @@
+kernel thread doing periodic work until the module is unloaded.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

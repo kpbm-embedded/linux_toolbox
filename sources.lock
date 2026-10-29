@@ -1,0 +1,21 @@
+# Pinned sources for `klinux setup` (and `klinux update --check`). One entry per line, fields separated by spaces.
+#
+# toolchain <folder in toolchain/> <url> <sha256>      kernel.org crosstool (no libc); the tarball is cached in cache/downloads/
+# stable <worktree in upstream/> <tag> <commit>        worktree of upstream/linux-stable.git (bare, shallow)
+# git <folder in upstream/> <url> <commit> <branch>    shallow fetch of exactly <commit>; <branch> is only for update --check
+# post <folder in upstream/> <script in scripts/>      run once after the fetch (local changes on top of a tree)
+toolchain gcc-14.3.0-riscv64-linux https://mirrors.edge.kernel.org/pub/tools/crosstool/files/bin/x86_64/14.3.0/x86_64-gcc-14.3.0-nolibc-riscv64-linux.tar.xz 3c4e193619faa07036612b556d2eb12e15487915bfdbd7237763db1cd608a5cd
+toolchain gcc-14.3.0-aarch64-linux https://mirrors.edge.kernel.org/pub/tools/crosstool/files/bin/x86_64/14.3.0/x86_64-gcc-14.3.0-nolibc-aarch64-linux.tar.xz 6951e7f2a984884ecdcb73ff75a6e785ce125d9d10e15ce536584592954e67fc
+toolchain gcc-14.3.0-arm-linux-gnueabi https://mirrors.edge.kernel.org/pub/tools/crosstool/files/bin/x86_64/14.3.0/x86_64-gcc-14.3.0-nolibc-arm-linux-gnueabi.tar.xz 7c0c5cc1014b71c8ae4735f1c3b6573965acc2c46e5a928994226d4958ef99c7
+stable linux-7.3 v7.3 c03c1a14507dfaf8b856c2608f9ac216021fc222
+stable linux-6.18.58 v6.18.58 2926d88bb7fc4608fd942453d929c39e4e5ec006
+stable linux-6.12.114 v6.12.114 85d82e0d7c2dfd3e75d34f35b7ebbf41f45c9c4e
+git linux-xuantie-kernel https://github.com/ruyisdk/linux-xuantie-kernel.git ae4a7e6518cd46407be9b648828b6f704d7dc302 HEAD
+git openbouffalo-linux https://github.com/openbouffalo/linux.git ce94420c6460b6348047a8a4b66a4bba0a3d9587 bl808/all
+git rockchip-linux-kernel https://github.com/rockchip-linux/kernel.git 77168c8d5ab82399f65a80e9f807b50ba37cf483 develop-6.1
+post rockchip-linux-kernel rk3506-luckfox-files
+git linux-a733/packaging https://github.com/radxa-pkg/linux-a733.git 166c84e4ce3e75750359f5085d712fd4f0bd1fe6 main
+git linux-a733/src https://github.com/radxa/kernel.git e41499895c17074874f4c48ff04041c57d8dfd99 allwinner-aiot-linux-5.15
+git linux-a733/bsp https://github.com/radxa/allwinner-bsp.git 2045a3ca2a01f088c0314dc924bda59d154e363e HEAD
+git linux-a733/device-a733 https://github.com/radxa/allwinner-device.git 6d911d1582dcccdb5a4c38be8d3c1ee851019795 HEAD
+post linux-a733 a733-assemble

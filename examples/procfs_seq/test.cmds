@@ -1,0 +1,6 @@
+insmod /m/box_proc.ko lines=3
+expect /proc/box_seq line 1/3
+expect /proc/box_seq line 3/3
+expect /sys/module/box_proc/parameters/lines 3
+rmmod box_proc
+missing /proc/box_seq

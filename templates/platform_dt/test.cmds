@@ -1,0 +1,5 @@
+insmod /m/@NAME@.ko
+klog probed, rate 250
+expect /sys/bus/platform/devices/@NAME_DASH@/rate 250
+rmmod @NAME@
+klog removed

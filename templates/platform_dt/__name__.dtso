@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Adds a vendor,@NAME_DASH@ node at the root (target-path: any base DT). Replace "vendor" with your prefix. */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	@NAME_DASH@ {
+		compatible = "vendor,@NAME_DASH@";
+		vendor,rate = <250>;
+	};
+};

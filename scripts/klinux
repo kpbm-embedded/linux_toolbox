@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# klinux - setup, health check, examples and templates of the embedded Linux kernel workspace (kernel builds: kbuild).
+#
+#   klinux [-n|--dry-run] setup [name ...]       pinned toolchains (sha256) and kernel trees (commits) from sources.lock
+#   klinux update --check                        compare the pins with upstream (newest tags, branch heads, compilers)
+#   klinux doctor                                health checks (toolchains, trees at their pins, host tools, qemu)
+#   klinux examples list|build|test [ex ...]     out-of-tree modules + DT overlays, tested by booting qemu-riscv64
+#   klinux run <dir> [--board B]                 build + boot-test any folder with Kbuild/test.cmds (a template result)
+#   klinux new <kind> <name> [--dir D]           new module/overlay/board from templates/<kind>
+#   klinux test [--all]                          tests/test_smoke.sh (--all: + examples test + tests/test_templates.sh)
+#
+# Exit status: 0 ok, 1 failure, 2 usage error, 3 not ready (e.g. the qemu-riscv64 kernel is not built yet).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+# shellcheck source=SCRIPTDIR/../env.sh
+source "$ROOT/env.sh"
+LOCK="$ROOT/sources.lock"
+QEMU_BOARD="${KLINUX_QEMU_BOARD:-qemu-riscv64}"
+
+usage() {
+  cat <<EOF
+klinux - setup, health check, examples and templates of this kernel workspace (kernel builds: kbuild).
+
+usage: klinux [-n|--dry-run] <command> [args]
+
+commands:
+  setup [name ...]            fetch the pinned toolchains and kernel trees in sources.lock (default: all; names are
+                              toolchain/tree folders, e.g. gcc-14.3.0-riscv64-linux linux-6.18.58); existing ones are kept
+  update --check              compare the pins with upstream: newest kernel.org releases, vendor branch heads, compilers
+  doctor                      health checks: toolchains, trees at their pinned commits, host tools, qemu, build dir
+  examples list               the examples (examples/*/ with a test.cmds)
+  examples build [ex ...]     build the example modules against the $QEMU_BOARD kernel (BOARD=<board> for another one)
+  examples test [ex ...]      build, then boot $QEMU_BOARD in QEMU with an initramfs that runs each test.cmds
+  run <dir> [--board B]       build + boot test one folder (Kbuild, test.cmds, *.dtso, kmods, overlays)
+  templates                   list the template kinds
+  new <kind> <name> [--dir D] copy templates/<kind> to D/<name> (default D: . ; kind board: boards/), fill in the name
+  test [--all]                tests/test_smoke.sh; --all also runs examples test and tests/test_templates.sh
+
+options: -n/--dry-run (setup, new: print what would happen), -h/--help
+environment: KLINUX_BUILD (output base), KLINUX_JOBS (make jobs, default 8), KLINUX_QEMU_BOARD (default qemu-riscv64),
+             QEMU_TIMEOUT (seconds per test boot, default 120)
+exit status: 0 ok, 1 failure, 2 usage error, 3 not ready (kernel for the examples not built yet)
+
+first time:
+  klinux setup && klinux doctor
+  kbuild qemu-riscv64 config && kbuild qemu-riscv64 build      # a few minutes; the examples boot this kernel
+  klinux examples test
+EOF
+}
+
+die_usage() { echo "klinux: $*" >&2; echo "run 'klinux --help'" >&2; exit 2; }
+say() { printf '%s\n' "$*"; }
+run() { if ((dry)); then printf '+'; printf ' %q' "$@"; echo; else "$@"; fi; }
+
+# ---------------------------------------------------------------- setup
+lock_entries() { grep -v '^[[:space:]]*\(#\|$\)' "$LOCK"; }
+
+want() { # name -> 0 when selected (no names given = all)
+  local n
+  ((${#names[@]} == 0)) && return 0
+  for n in "${names[@]}"; do [[ "$n" == "$1" || "$1" == "$n"/* ]] && return 0; done
+  return 1
+}
+
+setup_toolchain() { # folder url sha256
+  local dir="$KLINUX_TOOLCHAIN/$1" url="$2" sum="$3" tar dl="$ROOT/cache/downloads/gcc-14.3.0" top tmp
+  tar="$dl/$(basename "$url")"
+  if [[ -x "$(find "$dir/bin" -maxdepth 1 -name '*-gcc' -print -quit 2>/dev/null)" ]]; then say "ok   toolchain $1"; return 0; fi
+  if ! { [[ -f "$tar" ]] && echo "$sum  $tar" | sha256sum -c --quiet - 2>/dev/null; }; then
+    run mkdir -p "$dl"
+    run curl -fSL --retry 3 --connect-timeout 30 -o "$tar.part" "$url"
+    run mv "$tar.part" "$tar"
+  fi
+  if ((dry)); then say "+ sha256 check, tar xf $tar -> $dir"; return 0; fi
+  echo "$sum  $tar" | sha256sum -c --quiet - || { echo "klinux: sha256 mismatch: $tar" >&2; return 1; }
+  tmp="$(mktemp -d "$KLINUX_TOOLCHAIN/.unpack.XXXXXX")"
+  tar -xf "$tar" -C "$tmp"
+  top="$(find "$tmp" -mindepth 2 -maxdepth 2 -type d | head -1)"   # gcc-14.3.0-nolibc/<target>
+  mv "$top" "$dir"
+  rmdir "$tmp"/* "$tmp" 2>/dev/null || true
+  say "new  toolchain $1 ($("$(find "$dir/bin" -maxdepth 1 -name '*-gcc' -print -quit)" -dumpversion))"
+}
+
+setup_stable() { # worktree tag commit
+  local bare="$KLINUX_UPSTREAM/linux-stable.git" wt="$KLINUX_UPSTREAM/$1" tag="$2" commit="$3" have
+  if [[ -e "$wt/.git" ]]; then
+    have="$(git -C "$wt" rev-parse HEAD)"
+    [[ "$have" == "$commit" ]] && { say "ok   $1 ($tag)"; return 0; }
+    echo "klinux: $1 is at $have, pinned $commit: left as is (move it to the Trash to refetch)" >&2; return 1
+  fi
+  if [[ ! -d "$bare" ]]; then
+    run git init -q --bare "$bare"
+    run git -C "$bare" remote add origin https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+  fi
+  run git -C "$bare" fetch -q --depth 1 --no-tags origin tag "$tag"
+  ((dry)) || [[ "$(git -C "$bare" rev-parse "$tag^{commit}")" == "$commit" ]] || { echo "klinux: tag $tag is not $commit" >&2; return 1; }
+  run git -C "$bare" worktree add -q --detach "$wt" "$tag"
+  say "new  $1 ($tag)"
+}
+
+setup_git() { # folder url commit
+  local dir="$KLINUX_UPSTREAM/$1" url="$2" commit="$3" have
+  if [[ -d "$dir/.git" ]]; then
+    have="$(git -C "$dir" rev-parse HEAD)"
+    if [[ "$have" == "$commit" ]] || git -C "$dir" merge-base --is-ancestor "$commit" HEAD 2>/dev/null; then
+      say "ok   $1 (${commit:0:12})"; return 0
+    fi
+    echo "klinux: $1 is at $have, pinned $commit: left as is (move it to the Trash to refetch)" >&2; return 1
+  fi
+  run git init -q "$dir"
+  run git -C "$dir" remote add origin "$url"
+  run git -C "$dir" fetch -q --depth 1 origin "$commit"
+  run git -C "$dir" -c advice.detachedHead=false checkout -q FETCH_HEAD
+  say "new  $1 (${commit:0:12})"
+}
+
+cmd_setup() {
+  local kind a b c d rc=0
+  mkdir -p "$KLINUX_TOOLCHAIN" "$KLINUX_UPSTREAM" "$ROOT/cache/downloads"
+  while read -r kind a b c d; do
+    want "$a" || continue
+    case "$kind" in
+      toolchain) setup_toolchain "$a" "$b" "$c" || rc=1 ;;
+      stable) setup_stable "$a" "$b" "$c" || rc=1 ;;
+      git) setup_git "$a" "$b" "$c" || rc=1 ;;
+      post) if ((dry)); then run "$ROOT/scripts/$b" --dry-run; else "$ROOT/scripts/$b" || rc=1; fi ;;
+      *) echo "klinux: sources.lock: unknown kind '$kind'" >&2; rc=1 ;;
+    esac
+  done < <(lock_entries)
+  return $rc
+}
+
+# ---------------------------------------------------------------- update --check
+cmd_update() {
+  [[ "${1:-}" == --check ]] || die_usage "update needs --check (pins are changed by editing sources.lock)"
+  local kind a b c d rel newest series remote
+  rel="$(curl -fsS --max-time 30 https://www.kernel.org/releases.json 2>/dev/null || true)"
+  say "pin                             pinned          upstream"
+  while read -r kind a b c d; do
+    case "$kind" in
+      toolchain)
+        newest="$(curl -fsS --max-time 30 https://mirrors.edge.kernel.org/pub/tools/crosstool/files/bin/x86_64/ 2>/dev/null |
+          grep -o 'href="[0-9][0-9.]*/"' | tr -d '"/' | sed 's/href=//' | sort -V | tail -1)"
+        printf '%-31s %-15s %s\n' "$a" "$(basename "$(dirname "$b")")" "${newest:-?} (newest crosstool GCC)" ;;
+      stable)
+        series="${b#v}"; series="$(echo "$series" | cut -d. -f1,2)"
+        if [[ "$b" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+          newest="$(printf '%s' "$rel" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["latest_stable"]["version"])' 2>/dev/null || echo '?')"
+          printf '%-31s %-15s %s\n' "$a" "$b" "v$newest (latest stable)"
+        else
+          newest="$(printf '%s' "$rel" | python3 -c 'import json,sys
+d=json.load(sys.stdin); s=sys.argv[1]
+print(next((r["version"] for r in d["releases"] if r["version"].startswith(s+".")), "?"))' "$series" 2>/dev/null || echo '?')"
+          printf '%-31s %-15s %s\n' "$a" "$b" "v$newest (newest $series)"
+        fi ;;
+      git)
+        remote="$(git ls-remote "$b" "$( [[ "$d" == HEAD ]] && echo HEAD || echo "refs/heads/$d")" 2>/dev/null | head -1 | cut -c1-12)"
+        if [[ -z "$remote" ]]; then newest="? ($d unreachable)"
+        elif [[ "$remote" == "${c:0:12}" ]]; then newest="same ($d)"
+        else newest="$remote ($d moved)"; fi
+        printf '%-31s %-15s %s\n' "$a" "${c:0:12}" "$newest" ;;
+    esac
+  done < <(lock_entries)
+  say "To move a pin: edit sources.lock (and board.conf KERNEL_TREE/KERNEL_REF), move the old tree to the Trash, klinux setup."
+}
+
+# ---------------------------------------------------------------- doctor
+cmd_doctor() {
+  local ok=0 warn=0 bad=0 kind a b c d have t
+  check() { # level message (level: ok|warn|bad)
+    case "$1" in ok) ok=$((ok + 1)) ;; warn) warn=$((warn + 1)) ;; bad) bad=$((bad + 1)) ;; esac
+    printf '%-5s %s\n' "$1" "$2"
+  }
+  while read -r kind a b c d; do
+    case "$kind" in
+      toolchain)
+        t="$(find "$KLINUX_TOOLCHAIN/$a/bin" -maxdepth 1 -name '*-gcc' -print -quit 2>/dev/null || true)"
+        if [[ -n "$t" ]] && "$t" -dumpversion >/dev/null 2>&1; then check ok "toolchain $a ($("$t" -dumpversion))"
+        else check bad "toolchain $a missing (klinux setup $a)"; fi ;;
+      stable | git)
+        want_commit="$c"
+        if [[ ! -e "$KLINUX_UPSTREAM/$a/.git" ]]; then check warn "tree $a not fetched (klinux setup $a)"; continue; fi
+        have="$(git -C "$KLINUX_UPSTREAM/$a" rev-parse HEAD)"
+        if [[ "$have" == "$want_commit" ]] || git -C "$KLINUX_UPSTREAM/$a" merge-base --is-ancestor "$want_commit" HEAD 2>/dev/null; then
+          check ok "tree $a at ${want_commit:0:12}$([[ "$have" != "$want_commit" ]] && echo " + local ${have:0:12}")"
+        else check bad "tree $a at ${have:0:12}, pinned ${want_commit:0:12}"; fi ;;
+    esac
+  done < <(lock_entries)
+  for t in make gcc bc flex bison perl openssl dtc fdtoverlay cpio git curl sha256sum; do
+    if command -v "$t" >/dev/null; then check ok "host tool $t"; else check bad "host tool $t missing (install it with the OS package manager)"; fi
+  done
+  for t in pahole qemu-system-riscv64 ccache; do
+    if command -v "$t" >/dev/null; then check ok "host tool $t"; else check warn "host tool $t missing (optional)"; fi
+  done
+  if mkdir -p "$KLINUX_BUILD" 2>/dev/null && [[ -w "$KLINUX_BUILD" ]]; then check ok "build dir $KLINUX_BUILD writable"
+  else check bad "build dir $KLINUX_BUILD not writable (set KLINUX_BUILD)"; fi
+  if [[ -f "$KLINUX_BUILD/$QEMU_BOARD/arch/riscv/boot/Image" ]]; then check ok "$QEMU_BOARD kernel built (examples can boot)"
+  elif [[ -f "$KLINUX_BUILD/$QEMU_BOARD/scripts/mod/modpost" ]]; then check warn "$QEMU_BOARD prepared, not built: examples build only (kbuild $QEMU_BOARD build)"
+  else check warn "$QEMU_BOARD kernel not built: kbuild $QEMU_BOARD config && kbuild $QEMU_BOARD build"; fi
+  say "doctor: $ok ok, $warn warnings, $bad problems"
+  ((bad == 0))
+}
+
+# ---------------------------------------------------------------- examples / run
+board_var() { # board var -> value from boards/<board>/board.conf
+  ( set +u; source "$ROOT/boards/$1/board.conf"; eval "printf '%s' \"\${$2:-}\"" )
+}
+
+kdir_ready() { # board -> 0 when external modules can be built against it
+  [[ -f "$KLINUX_BUILD/$1/scripts/mod/modpost" && -f "$KLINUX_BUILD/$1/include/generated/autoconf.h" ]]
+}
+
+build_module() { # dir board out
+  local dir="$1" board="$2" out="$3" arch cross
+  [[ -f "$dir/Kbuild" ]] || return 0
+  kdir_ready "$board" || { echo "klinux: $KLINUX_BUILD/$board is not configured/prepared: kbuild $board config && kbuild $board prepare" >&2; return 3; }
+  arch="$(board_var "$board" ARCH)"; cross="$(board_var "$board" CROSS_COMPILE)"
+  mkdir -p "$out"
+  make -s -C "$KLINUX_BUILD/$board" M="$dir" MO="$out" ARCH="$arch" CROSS_COMPILE="$cross" \
+    KBUILD_MODPOST_WARN=1 -j"${KLINUX_JOBS:-8}" modules
+  ls "$out"/*.ko >/dev/null
+}
+
+build_init() { # board -> path of the nolibc /init (cached per board)
+  local board="$1" b="$KLINUX_BUILD/$1" src arch cross out="$KLINUX_BUILD/examples/_qemu/$1"
+  src="$KLINUX_UPSTREAM/$(board_var "$board" KERNEL_TREE)"
+  arch="$(board_var "$board" ARCH)"; cross="$(board_var "$board" CROSS_COMPILE)"
+  mkdir -p "$out"
+  if [[ ! -f "$out/init" || "$ROOT/examples/_qemu/boxinit.c" -nt "$out/init" ]]; then
+    [[ -d "$b/usr/include/asm" ]] || make -s -C "$src" O="$b" ARCH="$arch" CROSS_COMPILE="$cross" headers >/dev/null
+    "${cross}gcc" -Os -Wall -static -nostdlib -fno-stack-protector -fno-asynchronous-unwind-tables \
+      -include "$src/tools/include/nolibc/nolibc.h" -I "$src/tools/include/nolibc" -I "$b/usr/include" \
+      -o "$out/init" "$ROOT/examples/_qemu/boxinit.c" -lgcc
+  fi
+  printf '%s\n' "$out/init"
+}
+
+# Build and boot-test one folder: Kbuild (module, optional), test.cmds, *.dtso (overlays), overlays (more .dtso
+# paths), kmods (in-tree .ko paths from the kernel build). Output in $KLINUX_BUILD/examples/<name>/.
+run_dir() { # dir board [name]
+  local dir="$1" board="$2" name="${3:-$(basename "$1")}" out b="$KLINUX_BUILD/$2" init list dtb=() ov ko f rc=0
+  out="$KLINUX_BUILD/examples/$name"
+  [[ -f "$dir/test.cmds" ]] || { echo "klinux: $dir has no test.cmds" >&2; return 1; }
+  [[ "$board" == "$QEMU_BOARD" ]] || { echo "klinux: boot tests run on $QEMU_BOARD only (built for $board)" >&2; return 3; }
+  [[ -f "$b/arch/riscv/boot/Image" ]] || { echo "klinux: $board kernel not built: kbuild $board build" >&2; return 3; }
+  mkdir -p "$out"
+  build_module "$dir" "$board" "$out/mod" || return $?
+  init="$(build_init "$board")"
+  list="$out/initramfs.list"
+  {
+    printf 'dir /dev 0755 0 0\nnod /dev/console 0600 0 0 c 5 1\ndir /proc 0755 0 0\ndir /sys 0755 0 0\n'
+    printf 'dir /m 0755 0 0\ndir /k 0755 0 0\nfile /init %s 0755 0 0\nfile /test.cmds %s 0644 0 0\n' "$init" "$dir/test.cmds"
+    for ko in "$out"/mod/*.ko; do [[ -f "$ko" ]] && printf 'file /m/%s %s 0644 0 0\n' "$(basename "$ko")" "$ko"; done
+    if [[ -f "$dir/kmods" ]]; then
+      while read -r f; do [[ -n "$f" ]] && printf 'file /k/%s %s 0644 0 0\n' "$(basename "$f")" "$b/$f"; done <"$dir/kmods"
+    fi
+  } >"$list"
+  "$b/usr/gen_init_cpio" "$list" >"$out/initramfs.cpio"
+  local overlays=()
+  for f in "$dir"/*.dtso; do [[ -f "$f" ]] && overlays+=("$f"); done
+  if [[ -f "$dir/overlays" ]]; then while read -r f; do [[ -n "$f" ]] && overlays+=("$dir/$f"); done <"$dir/overlays"; fi
+  local qemu=(qemu-system-riscv64 -M virt -m 512 -smp 2 -nographic -no-reboot)
+  if ((${#overlays[@]})); then
+    "${qemu[@]}" -machine dumpdtb="$out/virt.dtb" >/dev/null 2>&1
+    cp "$out/virt.dtb" "$out/merged.dtb"
+    for ov in "${overlays[@]}"; do
+      dtc -q -@ -I dts -O dtb -o "$out/$(basename "${ov%.dtso}").dtbo" "$ov"
+      fdtoverlay -i "$out/merged.dtb" -o "$out/merged.dtb" "$out/$(basename "${ov%.dtso}").dtbo"
+    done
+    dtb=(-dtb "$out/merged.dtb")
+  fi
+  timeout "${QEMU_TIMEOUT:-120}" "${qemu[@]}" "${dtb[@]}" -kernel "$b/arch/riscv/boot/Image" -initrd "$out/initramfs.cpio" \
+    -append "console=ttyS0 rdinit=/init panic=-1 loglevel=6" >"$out/boot.log" 2>&1 || rc=$?
+  if grep -q '^BOXTEST: PASS' "$out/boot.log"; then
+    say "PASS $name ($(grep -c '^BOXTEST: \$' "$out/boot.log") commands; log $out/boot.log)"
+  else
+    say "FAIL $name (qemu rc $rc; log $out/boot.log)"
+    grep -E '^BOXTEST: (FAIL|got)|Oops|BUG:|Kernel panic|Call Trace' "$out/boot.log" | head -8 | sed 's/^/     /'
+    return 1
+  fi
+}
+
+example_names() { # all examples with a test.cmds
+  local d
+  for d in "$ROOT"/examples/*/test.cmds; do [[ -f "$d" ]] && basename "$(dirname "$d")"; done
+}
+
+cmd_examples() {
+  local sub="${1:-list}" ex board="${BOARD:-$QEMU_BOARD}" pass=0 fail=0 rc
+  shift || true
+  local exs=("$@")
+  ((${#exs[@]})) || mapfile -t exs < <(example_names)
+  case "$sub" in
+    list)
+      for ex in "${exs[@]}"; do printf '%-18s %s\n' "$ex" "$(sed -n 3p "$ROOT/examples/$ex/README.md" 2>/dev/null | cut -c1-100)"; done ;;
+    build)
+      for ex in "${exs[@]}"; do
+        [[ -d "$ROOT/examples/$ex" ]] || die_usage "no example '$ex'"
+        rc=0; build_module "$ROOT/examples/$ex" "$board" "$KLINUX_BUILD/examples/$ex/mod${BOARD:+-$board}" || rc=$?
+        ((rc == 3)) && return 3
+        if ((rc == 0)); then pass=$((pass + 1)); say "ok   $ex"; else fail=$((fail + 1)); say "FAIL $ex (build)"; fi
+      done
+      say "examples build: $pass ok, $fail failed"; ((fail == 0)) ;;
+    test)
+      for ex in "${exs[@]}"; do
+        [[ -d "$ROOT/examples/$ex" ]] || die_usage "no example '$ex'"
+        rc=0; run_dir "$ROOT/examples/$ex" "$board" || rc=$?
+        ((rc == 3)) && return 3
+        if ((rc == 0)); then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+      done
+      say "examples test: $pass passed, $fail failed"; ((fail == 0)) ;;
+    *) die_usage "examples: list|build|test [ex ...]" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- templates
+cmd_templates() {
+  local d
+  for d in "$ROOT"/templates/*/; do printf '%-14s %s\n' "$(basename "$d")" "$(sed -n 1p "$d/TEMPLATE" 2>/dev/null)"; done
+}
+
+cmd_new() {
+  local kind="${1:-}" name="${2:-}" dir="" src dst f nf
+  shift 2 2>/dev/null || die_usage "new <kind> <name> [--dir D]"
+  while (($#)); do
+    case "$1" in --dir) dir="${2:?--dir needs a folder}"; shift 2 ;; *) die_usage "new: unknown argument '$1'" ;; esac
+  done
+  src="$ROOT/templates/$kind"
+  [[ -n "$kind" && -d "$src" ]] || die_usage "unknown kind '$kind' (klinux templates)"
+  if [[ "$kind" == board ]]; then
+    [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die_usage "board name: lowercase letters, digits and -"
+    dir="${dir:-$ROOT/boards}"
+  else
+    [[ "$name" =~ ^[a-z][a-z0-9_]*$ ]] || die_usage "name: lowercase C identifier (letters, digits, _)"
+    dir="${dir:-.}"
+  fi
+  dst="$dir/$name"
+  [[ -e "$dst" ]] && { echo "klinux: $dst exists (nothing changed)" >&2; return 1; }
+  if ((dry)); then say "+ copy templates/$kind -> $dst (__name__ -> $name, @NAME@ -> $name)"; return 0; fi
+  mkdir -p "$dst"
+  (cd "$src" && find . -type f ! -name TEMPLATE) | while read -r f; do
+    nf="${f//__name__/$name}"
+    mkdir -p "$dst/$(dirname "$nf")"
+    sed -e "s/@NAME@/$name/g" -e "s/@NAME_DASH@/${name//_/-}/g" "$src/$f" >"$dst/$nf"
+  done
+  say "created $dst ($kind)"
+  sed -n '2,$p' "$src/TEMPLATE" | sed "s|@DIR@|$dst|g; s/@NAME@/$name/g"
+}
+
+# ---------------------------------------------------------------- main
+dry=0 args=()
+for a in "$@"; do
+  case "$a" in
+    -h | --help) [[ ${#args[@]} -eq 0 ]] && { usage; exit 0; }; args+=("$a") ;;
+    -n | --dry-run) dry=1 ;;
+    *) args+=("$a") ;;
+  esac
+done
+set -- "${args[@]+"${args[@]}"}"
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  help) usage ;;
+  setup) names=("$@"); cmd_setup ;;
+  update) cmd_update "$@" ;;
+  doctor) [[ $# -eq 0 ]] || die_usage "doctor takes no arguments"; cmd_doctor ;;
+  examples) cmd_examples "$@" ;;
+  run)
+    [[ $# -ge 1 ]] || die_usage "run <dir> [--board B]"
+    d="$(cd "$1" && pwd -P)"; b="$QEMU_BOARD"; [[ "${2:-}" == --board ]] && b="${3:?--board needs a name}"
+    run_dir "$d" "$b" "run-$(basename "$d")" ;;
+  templates) cmd_templates ;;
+  new) cmd_new "$@" ;;
+  test)
+    rc=0
+    "$ROOT/tests/test_smoke.sh" || rc=1
+    if [[ "${1:-}" == --all ]]; then
+      cmd_examples test || rc=1
+      "$ROOT/tests/test_templates.sh" || rc=1
+    elif [[ $# -gt 0 ]]; then die_usage "test [--all]"; fi
+    exit $rc ;;
+  *) die_usage "unknown command '$cmd'" ;;
+esac

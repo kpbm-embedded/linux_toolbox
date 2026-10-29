@@ -1,0 +1,2 @@
+I2C client driver (SMBus register access, sysfs attribute); the test uses the kernel's i2c-stub adapter.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

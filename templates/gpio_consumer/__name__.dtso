@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Test overlay: a simulated GPIO bank (gpio-sim) and the @NAME_DASH@ node using line 1 as "enable".
+ * On a board, drop gpio-sim and point enable-gpios at the real controller, e.g. <&gpio0 5 GPIO_ACTIVE_HIGH>. */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	gpio-sim {
+		compatible = "gpio-simulator";
+
+		simbank: bank0 {
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <4>;
+		};
+	};
+
+	@NAME_DASH@ {
+		compatible = "vendor,@NAME_DASH@";
+		enable-gpios = <&simbank 1 0>;
+	};
+};

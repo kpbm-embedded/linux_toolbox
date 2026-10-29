@@ -1,0 +1,6 @@
+insmod /m/box_platform.ko
+klog label=front channels=3 first=1 gain=high
+klog label=rear channels=1 first=7 gain=mid
+expect /sys/bus/platform/devices/box-sensor-front/label front
+expect /sys/bus/platform/devices/box-sensor-rear/gain mid
+rmmod box_platform

@@ -1,0 +1,5 @@
+insmod /m/@NAME@.ko
+expect /proc/@NAME@ name=@NAME@
+expect /proc/@NAME@ uptime_ms=
+rmmod @NAME@
+missing /proc/@NAME@

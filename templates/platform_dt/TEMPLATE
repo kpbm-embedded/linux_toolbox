@@ -1,0 +1,2 @@
+platform driver bound from the device tree (compatible "vendor,@NAME_DASH@"), with a property and a sysfs attribute.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

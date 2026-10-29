@@ -1,0 +1,1 @@
+# Kernel options for K230 (vendor kernel), merged over k230_defconfig (CONFIG_FOO=y lines).

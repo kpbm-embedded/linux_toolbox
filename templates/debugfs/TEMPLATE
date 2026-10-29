@@ -1,0 +1,2 @@
+debugfs folder /sys/kernel/debug/@NAME@ with a u32 and a seq_file.
+next: cd @DIR@ && klinux run .      (or: make KDIR=<kernel build dir> ARCH=... CROSS_COMPILE=...)

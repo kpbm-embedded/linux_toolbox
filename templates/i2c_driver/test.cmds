@@ -1,0 +1,8 @@
+insmod /k/i2c-stub.ko chip_addr=0x50
+insmod /m/@NAME@.ko
+write /sys/bus/i2c/devices/i2c-0/new_device @NAME@ 0x50
+klog probed at 0x50
+write /sys/bus/i2c/devices/0-0050/ctrl 7
+expect /sys/bus/i2c/devices/0-0050/ctrl 7
+write /sys/bus/i2c/devices/i2c-0/delete_device 0x50
+rmmod @NAME@
